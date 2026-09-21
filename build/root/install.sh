@@ -76,7 +76,7 @@ git clone --depth=1 --branch master https://github.com/SickChill/sickchill "${in
 
 mkdir -p "${install_path}"
 
-python.sh --create-virtualenv 'yes' --requirements-path "${install_path}" --pyenv-version '3.12' --virtualenv-path "${install_path}"
+python.sh --create-pyenv 'yes' --create-virtualenv 'yes' --requirements-path "${install_path}" --pyenv-version '3.12' --virtualenv-path "${install_path}"
 
 # container perms
 ####
