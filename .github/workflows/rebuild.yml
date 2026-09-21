@@ -35,17 +35,81 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      # Build only. The image is pushed further down, after it has been shown to
+      # start - a green build says nothing about whether the app actually runs.
+      - name: Build
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64
-          push: true
+          push: false
+          load: true
           provenance: false
           build-args: |
             APPNAME=sickchill
             RELEASETAG=${{ inputs.tag }}
           tags: ghcr.io/${{ github.repository_owner }}/arch-sickchill:${{ inputs.tag }}
+
+      - name: Smoke test - image contents
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/arch-sickchill:${{ inputs.tag }}
+        run: |
+          docker run --rm "$IMAGE" /bin/bash -eu -c '
+            test -f /opt/sickchill/pyvenv.cfg
+            test -x /opt/sickchill/bin/python
+            test -x /opt/sickchill/bin/sickchill
+            echo "--- pyvenv.cfg"
+            cat /opt/sickchill/pyvenv.cfg
+            echo "--- installed distribution"
+            /opt/sickchill/bin/python -c "import importlib.metadata as m; print(m.version(\"sickchill\"))"
+            echo "--- import of the entry point module"
+            /opt/sickchill/bin/python -c "import SickChill; assert callable(SickChill.main)"
+            echo "--- TheTVDB v4 client, the reason for this rebuild"
+            /opt/sickchill/bin/python -c "import sickchill.show.indexers.tvdb_v4_client as c; print(c.__file__)"
+          '
+
+      - name: Smoke test - container starts and serves the web UI
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/arch-sickchill:${{ inputs.tag }}
+        run: |
+          mkdir -p /tmp/smoke/config /tmp/smoke/media /tmp/smoke/data
+          chmod -R 777 /tmp/smoke
+          docker run -d --name sickchill-smoke \
+            -p 8081:8081 \
+            -e PUID=1000 -e PGID=1000 -e UMASK=000 \
+            -v /tmp/smoke/config:/config \
+            -v /tmp/smoke/media:/media \
+            -v /tmp/smoke/data:/data \
+            "$IMAGE"
+
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:8081/; then
+              ok=1
+              echo "web UI answered after ~$((i * 5))s"
+              break
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' sickchill-smoke)" != "true" ]; then
+              echo "container exited early"
+              break
+            fi
+            sleep 5
+          done
+
+          echo "::group::container log"
+          docker logs sickchill-smoke 2>&1 | tail -n 200
+          echo "::endgroup::"
+          echo "::group::sickchill log"
+          docker exec sickchill-smoke /bin/bash -c 'tail -n 200 /config/logs/sickchill.log' 2>&1 || true
+          echo "::endgroup::"
+
+          docker rm -f sickchill-smoke >/dev/null 2>&1 || true
+          [ "$ok" = "1" ]
+
+      - name: Push
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/arch-sickchill:${{ inputs.tag }}
+        run: docker push "$IMAGE"
 
       - name: Record what went in
         run: |
