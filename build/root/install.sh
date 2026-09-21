@@ -76,7 +76,22 @@ git clone --depth=1 --branch master https://github.com/SickChill/sickchill "${in
 
 mkdir -p "${install_path}"
 
-python.sh --create-pyenv 'no' --create-virtualenv 'yes' --requirements-path "${install_path}" --pyenv-version '3.12' --virtualenv-path "${install_path}"
+# The upstream recipe asked python.sh to install from '<install_path>/requirements.txt'.
+# SickChill dropped requirements.txt in 2021 and has shipped a Poetry project
+# (pyproject.toml) ever since, so that path has never existed for the cloned tree.
+# The base image's python.sh used to shrug that off; it now calls a missing
+# requirements.txt fatal, which is what stopped this build.
+#
+# Installing the cloned working tree via --pip-packages keeps the original intent
+# (SickChill's master branch, resolved at build time) and uses the same helper
+# option binhex used before the clone was introduced. It is also what produces
+# '<install_path>/bin/sickchill' - the console script declared in pyproject's
+# [project.scripts] that run/nobody/start.sh invokes, and the one the published
+# upstream image contains.
+#
+# Note: --pip-packages 'sickchill' (the pre-clone form) is not an option here.
+# The PyPI release is frozen at 2024.3.1 and predates the TheTVDB v4 indexer.
+python.sh --create-pyenv 'no' --create-virtualenv 'yes' --pip-packages "${install_path}" --virtualenv-path "${install_path}"
 
 # container perms
 ####
