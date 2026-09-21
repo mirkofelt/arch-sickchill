@@ -54,7 +54,12 @@ fi
 aur_packages=""
 
 # call aur install script (arch user repo)
-source aur.sh
+# The base image's aur.sh now exits with its usage text when it is handed no
+# package, so calling it with an empty list is no longer the no-op it used to
+# be. Guarded the same way the pacman block above is.
+if [[ -n "${aur_packages}" ]]; then
+	source aur.sh
+fi
 
 # github
 ####
